@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Расчёт стоимости</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg:var(--tg-theme-bg-color,#ffffff);
+  --tx:var(--tg-theme-text-color,#111827);
+  --hint:var(--tg-theme-hint-color,#6b7280);
+  --btn:var(--tg-theme-button-color,#2f6fed);
+  --btntx:var(--tg-theme-button-text-color,#ffffff);
+  --sec:var(--tg-theme-secondary-bg-color,#f1f3f6);
+  --ok:#1f9d55;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+.wrap{max-width:520px;margin:0 auto;padding:14px 14px 110px}
+h1{font-size:20px;margin:4px 0 14px}
+h2{font-size:13px;font-weight:600;color:var(--hint);text-transform:uppercase;letter-spacing:.04em;margin:18px 0 8px}
+.seg{display:grid;gap:8px}
+.seg.c2{grid-template-columns:1fr 1fr}
+.seg.c3{grid-template-columns:repeat(3,1fr)}
+.seg.c5{grid-template-columns:repeat(5,1fr)}
+.opt{border:2px solid transparent;background:var(--sec);color:var(--tx);border-radius:12px;padding:12px 6px;font:inherit;text-align:center;cursor:pointer}
+.opt.on{border-color:var(--btn);background:color-mix(in srgb,var(--btn) 16%,var(--bg));font-weight:600}
+.opt small{display:block;color:var(--hint);font-weight:400;font-size:12px}
+.step{display:flex;align-items:center;gap:14px;background:var(--sec);border-radius:12px;padding:8px 12px;width:max-content}
+.step button{width:40px;height:40px;border:0;border-radius:10px;background:var(--bg);color:var(--tx);font-size:22px;cursor:pointer}
+.step b{min-width:28px;text-align:center;font-size:18px}
+textarea,select{width:100%;border:2px solid transparent;background:var(--sec);color:var(--tx);border-radius:12px;padding:12px;font:inherit}
+textarea{min-height:84px;resize:vertical}
+.card{background:var(--sec);border-radius:14px;padding:14px;margin-top:18px}
+.card .row{display:flex;justify-content:space-between;gap:10px;margin:4px 0}
+.card .row span:last-child{white-space:nowrap}
+.total{font-size:22px;font-weight:700;margin-top:10px}
+.note{color:var(--hint);font-size:13px;margin-top:8px}
+.mgr{color:#b45309;font-size:14px;margin-top:8px}
+#send{display:none;position:fixed;left:14px;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));border:0;border-radius:14px;padding:15px;background:var(--btn);color:var(--btntx);font:600 17px inherit;cursor:pointer}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Расчёт стоимости</h1>
+
+  <h2>Что нужно</h2>
+  <div class="seg c2" id="g-t"></div>
+
+  <h2>Размер</h2>
+  <div class="seg c2" id="g-s"></div>
+
+  <h2>Сколько контейнеров</h2>
+  <div class="seg c3" id="g-q"></div>
+
+  <div id="rent-only">
+    <h2>Срок аренды</h2>
+    <select id="term"></select>
+    <div class="note">Минимальный срок 3 месяца. Меньший срок обсуждается с менеджером.</div>
+  </div>
+
+  <h2>Получение</h2>
+  <div class="seg c2" id="g-d"></div>
+  <div id="loc-wrap">
+    <h2>Куда доставить</h2>
+    <div class="seg c2" id="g-l"></div>
+  </div>
+
+  <div id="beds-wrap">
+    <h2>Двухъярусные кровати</h2>
+    <div class="step"><button type="button" id="b-minus" aria-label="Меньше">−</button><b id="b-val">0</b><button type="button" id="b-plus" aria-label="Больше">+</button></div>
+    <div class="note">Аренда одной кровати 20 $ в месяц.</div>
+  </div>
+
+  <h2>Что ещё важно (необязательно)</h2>
+  <textarea id="comment" maxlength="500" placeholder="Например: нужен кондиционер, адрес объекта, удобное время для звонка"></textarea>
+
+  <div class="card" id="price"></div>
+</div>
+<button id="send" type="button">Отправить заявку</button>
+
+<script>
+// ---- Цены: меняются только здесь ----
+const P = {RATE:{20:200,40:400}, DEPOSIT:{20:200,40:400}, SALE:{20:2000,40:3400}, BED:20, DELIVERY:150, MAXQ:5};
+const SIZE = {20:'20 футов (6 м)', 40:'40 футов (12 м)'};
+const S = {t:'r', s:20, q:1, m:3, d:'d', l:'t', b:0};
+
+// CALC START
+function money(n){ return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0') + '\u00a0$'; }
+function calc(S){
+  const lines=[], manager=[];
+  let total=0, dtot=0;
+  const dT = S.d==='d' && S.l==='t';
+  if(S.q===0) manager.push('количество больше 5');
+  if(S.d==='d' && S.l==='o') manager.push('доставка за пределы Ташкента');
+  if(S.t==='r'){
+    if(S.m===0) manager.push('срок меньше 3 месяцев или другой');
+    if(S.q && S.m){ const r=S.q*P.RATE[S.s]*S.m; lines.push(['Аренда: '+S.s+' футов × '+S.q+' шт. × '+S.m+' мес.', r]); total+=r; }
+    if(S.b && S.m){ const b=S.b*P.BED*S.m; lines.push(['Кровати: '+S.b+' шт. × '+P.BED+' $ × '+S.m+' мес.', b]); total+=b; }
+    if(S.q && dT){ dtot=S.q*P.DELIVERY*2; lines.push(['Доставка и вывоз по Ташкенту (до)', dtot]); total+=dtot; }
+  } else {
+    if(S.q){ const b=S.q*P.SALE[S.s]; lines.push(['Продажа: '+S.s+' футов × '+S.q+' шт. (от)', b]); total+=b; }
+    if(S.q && dT){ dtot=S.q*P.DELIVERY; lines.push(['Доставка по Ташкенту (до)', dtot]); total+=dtot; }
+  }
+  const deposit = (S.t==='r' && S.q) ? S.q*P.DEPOSIT[S.s] : 0;
+  const known = manager.length===0 && total>0;
+  return {lines, manager, total, known, deposit, dtot, dT};
+}
+// CALC END
+
+function seg(id, items, key, cast){
+  const box=document.getElementById(id); box.innerHTML='';
+  items.forEach(([val,label,sub])=>{
+    const b=document.createElement('button'); b.type='button'; b.className='opt'+(S[key]===val?' on':'');
+    b.innerHTML=label+(sub?'<small>'+sub+'</small>':'');
+    b.onclick=()=>{ S[key]=val; render(); tg&&tg.HapticFeedback&&tg.HapticFeedback.selectionChanged(); };
+    box.appendChild(b);
+  });
+}
+
+function render(){
+  seg('g-t',[['r','Аренда'],['s','Продажа']],'t');
+  seg('g-s',[[20,'20 футов','6 м'],[40,'40 футов','12 м']],'s');
+  seg('g-q',[[1,'1'],[2,'2'],[3,'3'],[4,'4'],[5,'5'],[0,'Больше 5']],'q');
+  seg('g-d',[['d','Доставка'],['p','Самовывоз']],'d');
+  seg('g-l',[['t','В пределах Ташкента'],['o','За пределы Ташкента']],'l');
+  const rent=S.t==='r';
+  document.getElementById('rent-only').classList.toggle('hide',!rent);
+  document.getElementById('beds-wrap').classList.toggle('hide',!rent);
+  document.getElementById('loc-wrap').classList.toggle('hide',S.d!=='d');
+  document.getElementById('term').value=String(S.m);
+  document.getElementById('b-val').textContent=S.b;
+  const r=calc(S);
+  let h='<b>Предварительный расчёт</b>';
+  r.lines.forEach(([l,v])=>{ h+='<div class="row"><span>'+l+'</span><span>'+money(v)+'</span></div>'; });
+  if(S.d==='p') h+='<div class="row"><span>Самовывоз: доставка не нужна</span><span></span></div>';
+  if(r.known){ h+='<div class="total">Итого: '+(S.t==='s'?'от ':(r.dT?'до ':''))+money(r.total)+'</div>'; }
+  else { h+='<div class="mgr">Точную стоимость рассчитает менеджер ('+(r.manager.join('; ')||'нужны уточнения')+').</div>'; }
+  if(r.deposit) h+='<div class="note">Возвратный залог: '+money(r.deposit)+' (в итог не входит).</div>';
+  h+='<div class="note">Стоимость приблизительная, окончательно её согласует менеджер.</div>';
+  document.getElementById('price').innerHTML=h;
+}
+
+// срок
+(function(){ const sel=document.getElementById('term'); for(let i=3;i<=12;i++){ const o=document.createElement('option'); o.value=i; o.textContent=i+' мес.'; sel.appendChild(o);} const o=document.createElement('option'); o.value=0; o.textContent='Другой срок'; sel.appendChild(o); sel.onchange=()=>{S.m=parseInt(sel.value,10); render();}; })();
+document.getElementById('b-minus').onclick=()=>{ if(S.b>0){S.b--; render();} };
+document.getElementById('b-plus').onclick=()=>{ if(S.b<6){S.b++; render();} };
+
+// Telegram
+const tg = window.Telegram && window.Telegram.WebApp;
+function send(){
+  const payload = {v:1, t:S.t, s:S.s, q:S.q, m:S.t==='r'?S.m:null, d:S.d, l:S.d==='d'?S.l:'-', b:S.t==='r'?S.b:0, c:document.getElementById('comment').value.trim().slice(0,500)};
+  if(tg && tg.initData){ tg.sendData(JSON.stringify(payload)); }
+  else { alert('Откройте форму из Telegram: кнопкой в боте @kont_uz_bot.'); }
+}
+if(tg){
+  tg.ready(); tg.expand();
+  if(tg.initData){
+    tg.MainButton.setText('Отправить заявку'); tg.MainButton.show(); tg.MainButton.onClick(send);
+  }
+}
+if(!tg || !tg.initData){ const b=document.getElementById('send'); b.style.display='block'; b.onclick=send; }
+render();
+</script>
+</body>
+</html>
