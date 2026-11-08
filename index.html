@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Расчёт стоимости</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://telegram.org/js/telegram-web-app.js" async></script>
 <style>
 :root{
   --bg:var(--tg-theme-bg-color,#ffffff);
@@ -38,13 +38,16 @@ textarea{min-height:84px;resize:vertical}
 .total{font-size:22px;font-weight:700;margin-top:10px}
 .note{color:var(--hint);font-size:13px;margin-top:8px}
 .mgr{color:#b45309;font-size:14px;margin-top:8px}
-#send{display:none;position:fixed;left:14px;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));border:0;border-radius:14px;padding:15px;background:var(--btn);color:var(--btntx);font:600 17px inherit;cursor:pointer}
+#send{position:fixed;left:14px;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));border:0;border-radius:14px;padding:16px;background:#16a34a;color:#ffffff;font:700 18px inherit;cursor:pointer;box-shadow:0 0 0 0 rgba(22,163,74,.55);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,.55)}70%{box-shadow:0 0 0 14px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
+@media (prefers-reduced-motion:reduce){#send{animation:none}}
 .hide{display:none!important}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Расчёт стоимости</h1>
+  <div id="err" style="color:#b91c1c;font-size:13px;margin-bottom:8px"></div>
 
   <h2>Что нужно</h2>
   <div class="seg c2" id="g-t"></div>
@@ -77,7 +80,7 @@ textarea{min-height:84px;resize:vertical}
   <h2>Что ещё важно (необязательно)</h2>
   <textarea id="comment" maxlength="500" placeholder="Например: нужен кондиционер, адрес объекта, удобное время для звонка"></textarea>
 
-  <div class="card" id="price"></div>
+  <div class="card" id="price">Загрузка…</div>
 </div>
 <button id="send" type="button">Отправить заявку</button>
 
@@ -149,20 +152,35 @@ document.getElementById('b-minus').onclick=()=>{ if(S.b>0){S.b--; render();} };
 document.getElementById('b-plus').onclick=()=>{ if(S.b<6){S.b++; render();} };
 
 // Telegram
-const tg = window.Telegram && window.Telegram.WebApp;
+let tg = null;
+function inTg(){ return !!(tg && tg.platform && tg.platform !== 'unknown'); }
 function send(){
   const payload = {v:1, t:S.t, s:S.s, q:S.q, m:S.t==='r'?S.m:null, d:S.d, l:S.d==='d'?S.l:'-', b:S.t==='r'?S.b:0, c:document.getElementById('comment').value.trim().slice(0,500)};
-  if(tg && tg.initData){ tg.sendData(JSON.stringify(payload)); }
+  if(inTg()){ tg.sendData(JSON.stringify(payload)); }
   else { alert('Откройте форму из Telegram: кнопкой в боте @kont_uz_bot.'); }
 }
-if(tg){
-  tg.ready(); tg.expand();
-  if(tg.initData){
-    tg.MainButton.setText('Отправить заявку'); tg.MainButton.show(); tg.MainButton.onClick(send);
+function initTg(){
+  const w = window.Telegram && window.Telegram.WebApp;
+  if(!w || tg) return !!tg;
+  tg = w;
+  try{ tg.ready(); tg.expand(); }catch(e){}
+  if(inTg()){
+    try{ tg.MainButton.setText('Отправить заявку'); tg.MainButton.show(); tg.MainButton.onClick(send); }catch(e){}
+    document.getElementById('send').style.display='none';
   }
+  return true;
 }
-if(!tg || !tg.initData){ const b=document.getElementById('send'); b.style.display='block'; b.onclick=send; }
+window.onerror = function(msg){ document.getElementById('err').textContent = 'Ошибка страницы: ' + msg; };
 render();
+initTg();
+let tries = 0;
+const timer = setInterval(function(){
+  tries++;
+  if(initTg() || tries > 20){
+    clearInterval(timer);
+    if(!inTg()){ const b=document.getElementById('send'); b.style.display='block'; b.onclick=send; }
+  }
+}, 250);
 </script>
 </body>
 </html>
